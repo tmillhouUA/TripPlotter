@@ -8,6 +8,7 @@ A browser-based tool for creating custom travel maps. Design multi-trip itinerar
 - **Great-circle and road routing** — flight legs follow geodesic paths; road legs fetch real driving routes
 - **Destination markers** — mark waypoints as destinations with auto-placed, nudgeable Hershey-font labels
 - **Adjustable map extent** — shift + click + drag a bounding box or type coordinates to frame any region
+- **Adjustable map content** — multiple map layers and per-country content via right-click context menus
 - **Layer controls** — toggle and style coastlines, borders, rivers, lakes, graticule, geographic lines, major highways, and secondary roads independently
 - **Plot mode** — lock the view to exact paper dimensions (inches or cm) for precise SVG export
 - **Save / load projects** — export and reimport `.tprj` project files to resume work across sessions; export individual trips (or sets of trips) to transfer between projects
