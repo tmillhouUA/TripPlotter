@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
@@ -1193,7 +1193,7 @@ function buildAllSegments(wps) {
 // ---------------------------------------------------------------------------
 const SHARED_DEST_COLOR_DEFAULT = '#b0b8c0';
 let SHARED_DEST_COLOR = SHARED_DEST_COLOR_DEFAULT;
-let TRIP_PATH_WIDTH_MM = 1.0;
+let TRIP_PATH_WIDTH_MM = 0.5;
 let TRIP_DOT_RADIUS_MM = 1.0;
 
 function paperWidthMm() {
@@ -1221,32 +1221,32 @@ const LAYER_COLOR_DEFAULTS = {
 const layerColors = { ...LAYER_COLOR_DEFAULTS };
 
 const LAYER_OPACITY_DEFAULTS = {
-  graticule:  0.25,
-  equator:    0.50,
-  tropics:    0.50,
-  polar:      0.50,
-  dateline:   0.50,
-  rivers:     0.75,
-  lakes:      0.75,
-  borders:    0.75,
-  coastlines: 0.75,
-  highways:   0.85,
-  secondary:  0.70,
+  graticule:  0.0625,
+  equator:    0.125,
+  tropics:    0.125,
+  polar:      0.125,
+  dateline:   0.125,
+  rivers:     0.25,
+  lakes:      0.25,
+  borders:    0.25,
+  coastlines: 0.25,
+  highways:   0.25,
+  secondary:  0.25,
 };
 const layerOpacity = { ...LAYER_OPACITY_DEFAULTS };
 
 const LAYER_WIDTH_DEFAULTS = {
-  graticule:  1.0,
-  equator:    1.0,
-  tropics:    1.0,
-  polar:      1.0,
-  dateline:   1.0,
-  rivers:     1.0,
-  lakes:      1.0,
-  borders:    1.0,
-  coastlines: 1.0,
-  highways:   1.0,
-  secondary:  1.0,
+  graticule:  0.3,
+  equator:    0.3,
+  tropics:    0.3,
+  polar:      0.3,
+  dateline:   0.3,
+  rivers:     0.3,
+  lakes:      0.3,
+  borders:    0.3,
+  coastlines: 0.3,
+  highways:   0.3,
+  secondary:  0.3,
 };
 const layerLineWidth = { ...LAYER_WIDTH_DEFAULTS };
 
@@ -3138,6 +3138,7 @@ function getSimplifiedFeatures(key, forExport, tolerance) {
   const useHigh = forExport ? resState.exportHighRes : resState.viewHighRes;
   const cacheKey = key + ':' + (useHigh ? 'high' : 'low');
   if (simplifiedCache.has(cacheKey)) return simplifiedCache.get(cacheKey);
+  if (dataset.features.length && dataset.features[0]._bbox === undefined) addFeatureBboxes(dataset.features);
   const simplified = dataset.features.map(f => ({
     ...f,
     geometry: simplifyGeometry(f.geometry, tolerance),
@@ -3223,6 +3224,7 @@ function addFeatureBboxes(features) {
   }
 }
 function bboxOverlaps(fb, vb) {
+  if (!fb) return true;
   return fb.east >= vb.west && fb.west <= vb.east &&
          fb.north >= vb.south && fb.south <= vb.north;
 }
@@ -3524,19 +3526,43 @@ function renderLayersAbove(appendLayer, bbox, dims, sw, forExport = false) {
 // Cache key for static layer groups \u2014 invalidated when anything affecting layer geometry changes
 let _staticLayerKey = null;
 
+// Update stroke-width attributes on stable layer groups without a full rebuild.
+// Called after every render regardless of cache hit/miss.
+function _applyLayerWidths(dims, rootEl) {
+  const sw = mm => mmToPx(mm, dims).toFixed(2);
+  const set = (id, mm) => {
+    const el = rootEl.querySelector('#' + id);
+    if (el) el.setAttribute('stroke-width', sw(mm));
+  };
+  set('graticule',          layerLineWidth.graticule);
+  set('geolines',           layerLineWidth.equator);   // all geo lines share one group
+  set('rivers',             layerLineWidth.rivers);
+  set('lakes',              layerLineWidth.lakes);
+  set('borders',            layerLineWidth.borders);
+  set('borders-disputed',   layerLineWidth.borders);
+  set('subdivisions',       layerLineWidth.borders);
+  set('secondary-roads',    layerLineWidth.secondary);
+  set('highways',           layerLineWidth.highways);
+  set('coastlines',         layerLineWidth.coastlines);
+  // Trip paths and dots use TRIP_PATH_WIDTH_MM, handled by renderTrip
+}
+
 function _buildStaticLayerKey(bbox, dims) {
   const checks = ['show-graticule','show-equator','show-tropics','show-polar','show-dateline',
                   'show-rivers','show-lakes','show-borders','show-coastlines']
     .map(id => isChecked(id) ? '1' : '0').join('');
   return JSON.stringify([
     bbox.west, bbox.east, bbox.south, bbox.north,
-    dims.svgW.toFixed(1), dims.svgH.toFixed(1),
+    Math.round(dims.svgW), Math.round(dims.svgH),
     checks,
-    JSON.stringify(layerColors), JSON.stringify(layerLineWidth),
+    JSON.stringify(layerColors),
+    JSON.stringify(layerOpacity),
     [...expandedCountries].sort().join(','),
     [...highwaysShown].sort().join(','),
     [...secondaryShown].sort().join(','),
     plotState.active ? '1' : '0',
+    resState.viewHighRes ? '1' : '0',
+    resState.exportHighRes ? '1' : '0',
     DRAFT_BG,
   ]);
 }
@@ -3603,6 +3629,9 @@ function render() {
     bbox.west + '\u00b0 \u2013 ' + bbox.east + '\u00b0 lon  |  ' +
     bbox.south + '\u00b0 \u2013 ' + bbox.north + '\u00b0 lat  |  ' +
     W.toFixed(0) + '\u00d7' + H.toFixed(0) + ' px';
+
+  const draftRoot = document.getElementById('static-layer-root');
+  if (draftRoot) _applyLayerWidths(dims, draftRoot);
 
   if (plotState.active) renderPlot(false);
 }
@@ -4000,11 +4029,17 @@ function getDataset(key, forExport) {
 function rebuildIndexes() {
   simplifiedCache.clear();
 
-  const lakesData     = getDataset('LAKES_DATA',     false);
-  const coastlineData = getDataset('COASTLINE_DATA', false);
-  const riversData    = getDataset('RIVERS_DATA',    false);
-  const bordersData   = getDataset('BORDERS_DATA',   false);
-  const admin1Data    = getDataset('ADMIN1_DATA',    false);
+  const keys = ['LAKES_DATA', 'COASTLINE_DATA', 'RIVERS_DATA', 'BORDERS_DATA', 'ADMIN1_DATA'];
+  const seen = new Set();
+  for (const key of keys) {
+    for (const hires of [false, true]) {
+      const ds = getDataset(key, hires);
+      if (ds && !seen.has(ds)) { seen.add(ds); addFeatureBboxes(ds.features); }
+    }
+  }
+
+  const lakesData  = getDataset('LAKES_DATA',  false);
+  const admin1Data = getDataset('ADMIN1_DATA', false);
 
   LAKE_RINGS = lakesData.features.map(f => f.geometry.coordinates[0]);
 
@@ -4014,12 +4049,6 @@ function rebuildIndexes() {
     if (!ADMIN1_BY_COUNTRY[code]) ADMIN1_BY_COUNTRY[code] = [];
     ADMIN1_BY_COUNTRY[code].push(feat);
   }
-
-  addFeatureBboxes(coastlineData.features);
-  addFeatureBboxes(riversData.features);
-  addFeatureBboxes(lakesData.features);
-  addFeatureBboxes(bordersData.features);
-  addFeatureBboxes(admin1Data.features);
 }
 
 function syncResUI() {
@@ -4043,6 +4072,8 @@ function getEffectivePaperH() {
   return inferredPaperH(plotState.paperW);
 }
 
+let _plotStaticLayerKey = null;
+
 function renderPlot(resetView = true) {
   if (!plotState.active) return;
 
@@ -4064,10 +4095,7 @@ function renderPlot(resetView = true) {
     paperPxW = areaH / aspect;
   }
 
-
   // Compute dims locked to paperPxW (not height), so all coordinates land correctly
-  // svgW = scale * (east-west) * π/180 = paperPxW  →  scale = paperPxW / ((east-west)*π/180)
-  // Then svgH = scale * (mercatorY(north) - mercatorY(south))
   const bbox    = getBbox();
   const lonSpan = (bbox.east - bbox.west) * Math.PI / 180;
   const lockedScale = paperPxW / lonSpan;
@@ -4082,13 +4110,48 @@ function renderPlot(resetView = true) {
   plotSvg.setAttribute('viewBox', '0 0 ' + paperPxW.toFixed(2) + ' ' + paperPxH.toFixed(2));
   plotSvg.setAttribute('width',  paperPxW.toFixed(2));
   plotSvg.setAttribute('height', paperPxH.toFixed(2));
-  while (plotSvg.firstChild) plotSvg.removeChild(plotSvg.firstChild);
 
-  // Paper background
-  plotSvg.appendChild(rectToPath(0, 0, paperPxW, paperPxH, {id:'background', fill: plotState.paperColor}));
+  const newPlotKey = _buildStaticLayerKey(bbox, plotDims) + '|' + Math.round(paperPxW) + '|' + Math.round(paperPxH) + '|' + plotState.paperColor;
+  const plotStaticDirty = newPlotKey !== _plotStaticLayerKey;
 
-  // Render all map layers at plot dims
-  renderAllLayers(plotSvg, bbox, plotDims, paperPxW, paperPxH, false);
+  if (plotStaticDirty) {
+    while (plotSvg.firstChild) plotSvg.removeChild(plotSvg.firstChild);
+    _plotStaticLayerKey = newPlotKey;
+
+    plotSvg.appendChild(rectToPath(0, 0, paperPxW, paperPxH, {id:'background', fill: plotState.paperColor}));
+
+    const clipDefs = svgEl('defs', {});
+    const clipPath = svgEl('clipPath', {id: 'plot-map-clip'});
+    clipPath.appendChild(svgEl('rect', {x:0, y:0, width:paperPxW, height:paperPxH}));
+    clipDefs.appendChild(clipPath);
+    plotSvg.appendChild(clipDefs);
+
+    const layerRoot = svgEl('g', {id: 'plot-static-layer-root', 'clip-path': 'url(#plot-map-clip)'});
+    plotSvg.appendChild(layerRoot);
+
+    const sw = mm => mmToPx(mm, plotDims).toFixed(2);
+    renderLayersBelow(node => layerRoot.appendChild(node), bbox, plotDims, sw, false);
+
+    const tripsG = svgEl('g', {id: 'plot-trips-layer'});
+    layerRoot.appendChild(tripsG);
+    if (isChecked('show-trips')) renderTrip(tripsG, bbox, plotDims);
+
+    const aboveG = svgEl('g', {id: 'plot-static-above-layer'});
+    layerRoot.appendChild(aboveG);
+    renderLayersAbove(node => aboveG.appendChild(node), bbox, plotDims, sw, false);
+
+  } else {
+    const tripsG = document.getElementById('plot-trips-layer');
+    if (tripsG) {
+      while (tripsG.firstChild) tripsG.removeChild(tripsG.firstChild);
+      if (isChecked('show-trips')) renderTrip(tripsG, bbox, plotDims);
+    } else {
+      _plotStaticLayerKey = null;
+    }
+  }
+
+  const plotRoot = document.getElementById('plot-static-layer-root');
+  if (plotRoot) _applyLayerWidths(plotDims, plotRoot);
 
   // Size and position the paper div — centered in container at zoom=1
   const plotContainer = document.getElementById('plot-container');
@@ -4237,7 +4300,7 @@ document.getElementById('plot-reset-btn').addEventListener('click', resetPlotVie
 
   const DEFAULTS = {
     'sl-label-size':   { val: 3.0,  fmt: v => v.toFixed(1) + ' mm', apply: v => { LABEL_SIZE_MM = v; } },
-    'sl-path-width':   { val: 1.0,  fmt: v => v.toFixed(2) + ' mm', apply: v => { TRIP_PATH_WIDTH_MM = v; } },
+    'sl-path-width':   { val: 0.5,  fmt: v => v.toFixed(2) + ' mm', apply: v => { TRIP_PATH_WIDTH_MM = v; } },
     'sl-dot-radius':   { val: 1.5,  fmt: v => v.toFixed(2) + ' mm', apply: v => { TRIP_DOT_RADIUS_MM = v; } },
     'sl-label-offset': { val: 3.0,  fmt: v => v.toFixed(2) + ' mm', apply: v => { LABEL_OFFSET_MM = v; } },
     'sl-char-gap':     { val: 1.0,  fmt: v => v.toFixed(2) + ' mm', apply: v => { CHAR_GAP_MM    = v; } },
